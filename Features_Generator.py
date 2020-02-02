@@ -5,6 +5,7 @@ import time
 from time import gmtime, strftime
 from IPython.core.display import clear_output
 from collections import Counter
+import os
 
 class Features_Generator(object):
     
@@ -24,13 +25,17 @@ class Features_Generator(object):
     def features_dict(self, df_products):
         
         '''Функция создания словаря для создания признаков на основе купленных продуктов'''
-        
-        features_product=dict(set(zip(df_products['level_1'].unique(), np.zeros(len(df_products['level_1'].unique())))))
-        for col in df_products.columns[2:6]:
-            if col=='segment_id':
-                features_product.update(dict(set(zip('segment_id_'+(df_products[col].astype(str).unique()), np.zeros(len(df_products[col].unique()))))))
-            else:
-                features_product.update(dict(set(zip(df_products[col].unique(), np.zeros(len(df_products[col].unique()))))))
+        if self.low_memory==True:
+            
+            features_product=dict(set(zip('segment_id_'+df_products['segment_id'].astype(str).unique(), np.zeros(len(df_products['segment_id'].unique())))))
+        else:
+            
+            features_product=dict(set(zip(df_products['level_1'].unique(), np.zeros(len(df_products['level_1'].unique())))))
+            for col in df_products.columns[2:6]:
+                if col=='segment_id':
+                    features_product.update(dict(set(zip('segment_id_'+(df_products[col].astype(str).unique()), np.zeros(len(df_products[col].unique()))))))
+                else:
+                    features_product.update(dict(set(zip(df_products[col].unique(), np.zeros(len(df_products[col].unique()))))))
         
         return features_product
    
@@ -55,10 +60,13 @@ class Features_Generator(object):
         all_client_n = purchases['client_id'].nunique()
         start_time_for_print = strftime("%Y-%m-%d %H:%M:%S", gmtime())
         start_time = time.time()
-        dict_product = dict(zip(df_products['product_id'].values, df_products.iloc[:, 1:6].values))
+        if self.low_memory==True:
+            dict_product = dict(zip(df_products['product_id'].values, df_products.iloc[:, 5].values))
+        else:
+            dict_product = dict(zip(df_products['product_id'].values, df_products.iloc[:, 1:6].values))
         dict_product_number = dict(zip(df_products['product_id'].values, df_products.iloc[:, -3:].values))
         print(f'Начало обработки клиентов {start_time_for_print}')
-        features_product=self.features_dict(df_products)
+        features_product=self.features_dict(df_products, )        
         features_product['netto'] = 0
         features_product['trademark'] = 0
         features_product['alhocol'] = 0
@@ -66,6 +74,10 @@ class Features_Generator(object):
         features_product['express_points_received']=0
         features_product['regular_points_spent']=0
         features_product['express_points_spent']=0
+        for i in range(24):
+            if i<7:
+                features_product['dayofweek_'+str(i)]=0
+            features_product['hour_'+str(i)]=0
         points_list = ['regular_points_received', 'express_points_received',\
                        'regular_points_spent', 'express_points_spent']
         data = []
@@ -100,13 +112,17 @@ class Features_Generator(object):
 
             #Features from products
             count_products = Counter(client['product_id'])
-            for product in count_products.keys():
-                values=dict_product[product]
-                for value in values:
-                    if type(value)!=str:
-                        features_product['segment_id_'+str(value)]=count_products[product]
-                    else:
-                        features_product[value]=count_products[product]
+            if self.low_memory==True:
+                for product in count_products.keys():
+                    features['segment_id_'+str(dict_product[product])]=count_products[product]
+            else:
+                for product in count_products.keys():
+                    values=dict_product[product]
+                    for value in values:
+                        if type(value)!=str:
+                            features['segment_id_'+str(value)]=count_products[product]
+                        else:
+                            features[value]=count_products[product]
 
             temp_dict_quantity = dict(zip(client['product_id'], client['product_quantity']))
             for product, quantity in temp_dict_quantity.items():
@@ -114,6 +130,15 @@ class Features_Generator(object):
                 features['netto']+=quantity*dict_product_number[product][0] 
                 features['trademark']+=quantity*dict_product_number[product][1] 
                 features['alhocol']+=quantity*dict_product_number[product][2] 
+                
+            #Features from date
+            temp_dict_date = dict(zip(client['transaction_id'].values, client['dayofweek'].values))
+            for dayofweek in temp_dict_date.values():
+                 features['dayofweek_'+str(dayofweek)]+=1 
+                
+            temp_dict_date = dict(zip(client['transaction_id'].values, client['hour'].values))
+            for hour in temp_dict_date.values():
+                 features['hour_'+str(hour)]+=1     
                 
             #Features from points
             points_dict = dict(zip(client['transaction_id'].values, client[points_list].values))
@@ -205,9 +230,8 @@ class Features_Generator(object):
         stop_number - чило chunks на котором остановиться подрузка файла.
         Это нужно, чтобы обработать файл в несколько подходов, для малой оперативной памяти.
         '''
-        
-        start_time = time.time()
-        
+        self.low_memory=low_memory
+        start_time = time.time()        
         df_clients = pd.read_csv(self.clients_path) 
         train = pd.read_csv(self.train_path) 
         test = pd.read_csv(self.test_path) 
@@ -220,17 +244,23 @@ class Features_Generator(object):
             
             for chunk in purchases_chunks: 
                 count+=1
-                if count>skip_number:
+                if count<=skip_number:
+                    clear_output()
+                    print(f'Пропущен {count}-й chunk из {skip_number} chunks')
+                else:
+                    print(f'Обрабатывается {count}-й chunk из {46} chunks')
                     chunk.fillna(0, inplace=True)
-                    print(f'Обрабатывается {count} chunk из {46} chunks')
+                    chunk['hour']=pd.to_datetime(chunk['transaction_datetime']).dt.hour
+                    chunk['dayofweek']=pd.to_datetime(chunk['transaction_datetime']).dt.dayofweek
                     data+=self.features_processing_from_purchases(chunk)
                     if count==stop_number:
                         break
+                
             print('Создается общий датафрейм...')
             features_set = pd.DataFrame(data)
         else:
-            print('Создается общий датафрейм...')
-            features_set = pd.DataFrame(self.features_processing_from_purchases(pd.read_csv(self.purchases_path))).fillna(0)
+            #print('Создается общий датафрейм...')
+            features_set = pd.DataFrame(self.features_processing_from_purchases(pd.read_csv(self.purchases_path)))
         
         
         features_set = pd.merge(features_set, df_features, how='inner')
@@ -258,5 +288,57 @@ class Features_Generator(object):
         print(f'Тренировочный датасет состоит из обработанных данных {features_set_train.shape[0]} клиентов и {features_set_train.shape[1]-2} сгенерированных признаков')
         print(f'Тестовый датасет состоит из обработанных данных {features_set_test.shape[0]} клиентов и {features_set_test.shape[1]} сгенерированных признаков')
         
-        if low_memory==False:
+        if save_files==False:
             return features_set_train, features_set_test
+        
+        
+        
+    def concat_features_sets(self, path_to_sets, test_sets=False, train_sets=True, valid_set=False):
+        start_time = time.time()  
+        os.chdir(path_to_sets)
+        feat_sets = sorted(os.listdir())
+        print(feat_sets)
+        edge = len(feat_sets)/2
+        features_train = pd.DataFrame()
+        features_test = pd.DataFrame()
+        for i, feat_set in enumerate(feat_sets):
+            if (test_sets) & (i<edge):
+                temp_df = pd.read_csv(path_to_sets+feat_set)
+                features_test = pd.concat([temp_df, features_test], ignore_index=True, sort=False)
+            elif (train_sets) & (i>=edge):
+                temp_df = pd.read_csv(path_to_sets+feat_set)
+                features_train = pd.concat([temp_df, features_train], ignore_index=True, sort=False)
+        
+        if valid_set:
+            val_train = features_train.iloc[-30000:,:]
+            val_train.to_csv(self.path+'val_test.csv', index=False)
+            features_train = features_train.iloc[:-30000,:]
+            features_train.to_csv(self.path+'features_train_noval.csv', index=False)
+        else:
+            features_train.to_csv(self.path+'features_train.csv', index=False)
+         
+        features_test.to_csv(self.path+'features_test.csv', index=False)
+        print(f'Весь процесс обработки данных занял {int(time.time()-start_time)} секунд')    
+        
+       
+            
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
