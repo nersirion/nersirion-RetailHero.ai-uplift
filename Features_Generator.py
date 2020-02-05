@@ -10,7 +10,9 @@ import os
 class Features_Generator(object):
     
     '''Класс для преобразования имеющихся данных в два датасета признаков.
-     Нужно лишь задать путь (path) к папке, где лежат данные и запустить финальную функцию.'''
+     Нужно лишь задать путь (path) к папке, где лежат данные и запустить функцию create_features для создания признаков.
+     Если функция запускалась в режиме low_memory, то признаки разбиты на разные файлы. Для объединения их в один файл
+    предназначена функция concat_features_sets.'''
     
     
     def __init__(self, path):
@@ -293,11 +295,14 @@ class Features_Generator(object):
         
         
         
-    def concat_features_sets(self, path_to_sets, test_sets=False, train_sets=True, valid_set=False):
+    def concat_features_sets(self, path_to_sets, test_sets=False, train_sets=False, valid_set=False):
+        
+        '''Функция для объединения признаков в один файл. Параметр valid_set забирает последние 30000 строк и сохраняет в отдельный
+        файл для валидации'''
+        
         start_time = time.time()  
         os.chdir(path_to_sets)
         feat_sets = sorted(os.listdir())
-        print(feat_sets)
         edge = len(feat_sets)/2
         features_train = pd.DataFrame()
         features_test = pd.DataFrame()
@@ -305,19 +310,21 @@ class Features_Generator(object):
             if (test_sets) & (i<edge):
                 temp_df = pd.read_csv(path_to_sets+feat_set)
                 features_test = pd.concat([temp_df, features_test], ignore_index=True, sort=False)
+                features_test = features_test.iloc[features_test.drop_duplicates().index].reset_index(drop=True)
             elif (train_sets) & (i>=edge):
                 temp_df = pd.read_csv(path_to_sets+feat_set)
                 features_train = pd.concat([temp_df, features_train], ignore_index=True, sort=False)
+                duplicate_index = features_train[features_train['client_id'].duplicated()].index
+                duplicate_index.append(duplicate_index-1)
+                features_train = features_train.drop(duplicate_index)
         
         if valid_set:
             val_train = features_train.iloc[-30000:,:]
             val_train.to_csv(self.path+'val_test.csv', index=False)
-            features_train = features_train.iloc[:-30000,:]
-            features_train.to_csv(self.path+'features_train_noval.csv', index=False)
-        else:
-            features_train.to_csv(self.path+'features_train.csv', index=False)
-         
-        features_test.to_csv(self.path+'features_test.csv', index=False)
+            features_train = features_train.iloc[:-30000,:]           
+        if test_sets:
+            features_test.to_csv(self.path+'features_test.csv', index=False)
+        features_train.to_csv(self.path+'features_train.csv', index=False)
         print(f'Весь процесс обработки данных занял {int(time.time()-start_time)} секунд')    
         
        
