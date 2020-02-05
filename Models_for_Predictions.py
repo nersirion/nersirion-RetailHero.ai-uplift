@@ -4,12 +4,13 @@ import lightgbm as lgb
 import catboost as cat
 import pandas as pd
 import numpy as np
-
+from IPython.core.display import clear_output
 
 class Models_for_Predictions(Models_Fundaments):
     '''Класс для предсказаний. Включает в себя три модели: xgb, lgb, cat. Опирается на класс Models_Fundaments. 
-    Работает в двух режимах: val and test. '''
-
+    Работает в двух режимах: val and test. Каждая модель возращает 2 результата предксказание по train и  test/val в зависимости от режима.
+    '''
+    
 
     def xgb_stacking(self, target=None,):
         
@@ -37,10 +38,10 @@ class Models_for_Predictions(Models_Fundaments):
                 
             if self.mode == 'test':
                 
-                predict_test.append(model.predict(xgb.DMatrix(self.test.drop(self.cols_to_drop, axis=1))))
+                predict_test.append(model.predict(xgb.DMatrix(self.test.drop(self.drop_columns_test, axis=1))))
                 
             xgb_models.append(model)
-        
+        clear_output()
         if self.mode=='val':
             return predict_train, np.asarray(predict_val).mean(axis=0)
         if self.mode=='test':
@@ -76,10 +77,10 @@ class Models_for_Predictions(Models_Fundaments):
                 predict_val.append(model.predict((self.val.drop(self.cols_to_drop, axis=1)), num_iteration=model.best_iteration))
             
             if self.mode == 'test':
-                predict_test.append(model.predict((self.test.drop(self.cols_to_drop, axis=1)), num_iteration=model.best_iteration))
+                predict_test.append(model.predict((self.test.drop(self.drop_columns_test, axis=1)), num_iteration=model.best_iteration))
                
             lgb_models.append(model)
-            
+        clear_output()    
         if self.mode=='val':
             return predict_train, np.asarray(predict_val).mean(axis=0)
         if self.mode=='test':
@@ -114,19 +115,20 @@ class Models_for_Predictions(Models_Fundaments):
                 predict_val.append(model.predict(cat.Pool(self.val.drop(self.cols_to_drop, axis=1))))
                
             if self.mode == 'test':
-                predict_test.append(model.predict(cat.Pool(self.test.drop(self.cols_to_drop, axis=1))))
+                predict_test.append(model.predict(cat.Pool(self.test.drop(self.drop_columns_test, axis=1))))
                
             cat_models.append(model)
-
+        clear_output()    
         if self.mode=='val':
             return predict_train, np.asarray(predict_val).mean(axis=0)
         if self.mode=='test':
             return predict_train, np.asarray(predict_test).mean(axis=0)
 
 
-    def upgrade_data(self, path, all_predicts_train, all_predicts_val, all_predicts_test):
+    def upgrade_data(self, path,  mode='boost', save_file=None, xgb_target=None, lgb_target=None, cat_target=None):
         
         '''Функция для объединения предсказаний в и данных новый датафрейм для дальнейшей работы.
+        Принимает в себя лист таргетов для каждой модели и делает для них предсказание. 
         Работает в двух режимах:
             boost - добавляет предсказания к исходным данным
             stack - формирует датафрейм из предсказаний.   
@@ -135,19 +137,21 @@ class Models_for_Predictions(Models_Fundaments):
         all_predicts_train = []
         all_predicts_val_or_test = []
         if xgb_target != None:
-            xgb_predict_train, xgb_predict_val_or_test = self.xgb_stacking(xgb_target)
-            all_predicts_train=np.concatenate([all_predicts_train, xgb_predict_train])
-            all_predicts_val_or_test=np.concatenate([all_predicts_val_or_test, xgb_predict_val_or_test])
+            for target in xgb_target:
+                xgb_predict_train, xgb_predict_val_or_test = self.xgb_stacking(target)
+                all_predicts_train.append(xgb_predict_train)
+                all_predicts_val_or_test.append(xgb_predict_val_or_test)
             
         if lgb_target != None:
-            lgb_predict_train, lgb_predict_val_or_test = self.lgb_stacking(lgb_target)
-            all_predicts_train=np.concatenate([all_predicts_train, lgb_predict_train])
-            all_predicts_val_or_test=np.concatenate([all_predicts_val_or_test, lgb_predict_val_or_test])
-            
+            for target in lgb_target:
+                lgb_predict_train, lgb_predict_val_or_test = self.lgb_stacking(target)
+                all_predicts_train.append(lgb_predict_train)
+                all_predicts_val_or_test.append(lgb_predict_val_or_test)
         if cat_target != None:
-            cat_predict_train, cat_predict_val_or_test = self.cat_stacking(cat_target)    
-            all_predicts_train=np.concatenate([all_predicts_train, cat_predict_train])
-            all_predicts_val_or_test=np.concatenate([all_predicts_val_or_test, cat_predict_val_or_test])
+            for target in cat_target:
+                cat_predict_train, cat_predict_val_or_test = self.cat_stacking(target)    
+                all_predicts_train.append(cat_predict_train)
+                all_predicts_val_or_test.append(cat_predict_val_or_test)
             
         if mode=='boost':
             
@@ -157,14 +161,24 @@ class Models_for_Predictions(Models_Fundaments):
                 if save_file:
                     self.train.to_csv(path+'new_train.csv', index=False)
                     self.val.to_csv(path+'new_val.csv', index=False)
-              if self.mode=='test':
+            if self.mode=='test':
                 self.test = pd.concat([self.test, all_predicts_val_or_test], axis=1)
                 if save_file:
                     self.train.to_csv(path+'new_train.csv', index=False)
                     self.test.to_csv(path+'new_test.csv', index=False)
             
         elif mode == 'stack':
-            self.new_train
+            self.new_train = pd.DataFrame(all_predicts_train).T
+            if self.mode == 'val':
+                self.new_val = pd.DataFrame(all_predicts_val_or_test).T
+                if save_file:
+                    self.train.to_csv(path+'new_train.csv', index=False)
+                    self.val.to_csv(path+'new_val.csv', index=False)
+            if self.mode == 'test':
+                self.new_test = pd.DataFrame(all_predicts_val_or_test).T
+                if save_file:
+                    self.train.to_csv(path+'new_train.csv', index=False)
+                    self.test.to_csv(path+'new_test.csv', index=False)
         
         
         
