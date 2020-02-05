@@ -5,20 +5,29 @@ from sklearn.model_selection import StratifiedKFold
 
 class Models_Fundaments(object):
     
-    '''Класс, в который закладывается фундамент для модели: параметры, число cv и вспомогательные функции'''
+    '''Класс, в который закладывается фундамент для модели: параметры, число cv и вспомогательные функции.
+    Если указан путь, то с него подгружаются файлы. Имена файлов должны быть features_train.csv, features_val.csv, 
+    features_test.csv для train, val, test соответсвенно.
+    Если путь не указан, то файлы надо задать на прямую для self.train, self.val и self.test'''
     
-    def __init__(self, path_to_file, cols_to_drop, NFOLDS = 5, xgb_params=None, lgb_params=None, cat_params=None, mode='val',):
+    def __init__(self, cols_to_drop, NFOLDS = 5,  path_to_files=None, xgb_params=None, lgb_params=None, cat_params=None, mode='val',):
         
         self.cols_to_drop = cols_to_drop
         self.mode=mode
-        self.train = pd.read_csv(path_to_file+'features_train.csv')
         
-        self.val = pd.read_csv(path_to_file+'features_val.csv')
+        if path_to_files:
+            self.train = pd.read_csv(path_to_files+'features_train.csv')            
+            self.val = pd.read_csv(path_to_files+'features_val.csv')            
+            if self.mode=='test':
+                self.test = pd.read_csv(path_to_files+'features_test.csv')
+                self.train = pd.concat([self.val, self.train], sort=False)
         
-        if self.mode=='test':
-            self.test = pd.read_csv(path_to_file+'features_test.csv')
-            self.train = pd.concat([self.val, self.train], sort=False)
-            
+        if self.mode == 'test':
+            try:
+                test_columns = self.test.columns.to_list()
+                self.drop_columns_test = [col for col in cols_to_drop if col in test_columns]
+            except:
+                print('Тестовый датасет не загружен и drop_columns_test не определены. Установите напрямую.')
         self.folds = StratifiedKFold(n_splits=NFOLDS, shuffle=True, random_state=42)
         
         if xgb_params:
@@ -58,9 +67,9 @@ class Models_Fundaments(object):
                             'max_depth': 13,
                             'num_leaves': 924,
                             'min_gain_to_split': 0.09270624702126036,
-                            
+                            'n_estimators': 2000,
                             'lambda_l1': 1.6448761550547633,
-                            'lambda_l2':1.1863869490262469,
+                            'lambda_l2':1.4,
                             'subsample': 0.937203344164974}
             
         if cat_params:
@@ -69,7 +78,7 @@ class Models_Fundaments(object):
             self.cat_params = {'eval_metric': 'AUC',
                                 'random_seed': 42,
                               'n_estimators': 2000,
-                              'eta': 0.01}
+                              'eta': 0.02}
             
     def create_classes(self):
         
