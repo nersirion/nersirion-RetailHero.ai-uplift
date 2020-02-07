@@ -262,7 +262,10 @@ class Features_Generator(object):
             features_set = pd.DataFrame(data)
         else:
             #print('Создается общий датафрейм...')
-            features_set = pd.DataFrame(self.features_processing_from_purchases(pd.read_csv(self.purchases_path)))
+            purchases = pd.read_csv(self.purchases_path)
+            purchases['hour']=pd.to_datetime(purchases['transaction_datetime']).dt.hour
+            purchases['dayofweek']=pd.to_datetime(purchases['transaction_datetime']).dt.dayofweek
+            features_set = pd.DataFrame(self.features_processing_from_purchases(purchases))
         
         
         features_set = pd.merge(features_set, df_features, how='inner')
