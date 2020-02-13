@@ -155,14 +155,14 @@ class Models_for_Predictions(Models_Fundaments):
             
         if mode=='boost':
             
-            self.train=pd.concat([self.train, all_predicts_train], axis=1)
+            self.train=pd.concat([self.train, pd.DataFrame(all_predicts_train).T], axis=1)
             if self.mode=='val':
-                self.val = pd.concat([self.val, all_predicts_val_or_test], axis=1)
+                self.val = pd.concat([self.val, pd.DataFrame(all_predicts_val_or_test).T], axis=1)
                 if save_file:
                     self.train.to_csv(path+'new_train.csv', index=False)
                     self.val.to_csv(path+'new_val.csv', index=False)
             if self.mode=='test':
-                self.test = pd.concat([self.test, all_predicts_val_or_test], axis=1)
+                self.test = pd.concat([self.test, pd.DataFrame(all_predicts_val_or_test).T], axis=1)
                 if save_file:
                     self.train.to_csv(path+'new_train.csv', index=False)
                     self.test.to_csv(path+'new_test.csv', index=False)

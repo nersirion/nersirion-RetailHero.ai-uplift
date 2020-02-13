@@ -116,13 +116,13 @@ class Features_Generator(object):
             count_products = Counter(client['product_id'])
             if self.low_memory==True:
                 for product in count_products.keys():
-                    features['segment_id_'+str(dict_product[product])]=count_products[product]
+                    features['segment_id_'+str(dict_product[product])]+=count_products[product]
             else:
                 for product in count_products.keys():
                     values=dict_product[product]
                     for value in values:
                         if type(value)!=str:
-                            features['segment_id_'+str(value)]=count_products[product]
+                            features['segment_id_'+str(value)]+=count_products[product]
                         else:
                             features[value]=count_products[product]
 
